@@ -1,4 +1,4 @@
-// Filename: matrix_vector_multiplication_v4.c
+// Filename: matrix_vector_multiplication_v5.c
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +26,7 @@ int main(int argc, char *argv[]) {
     if (argc != 3) {
         if (rank == 0) {
             fprintf(stderr, "Usage: %s <rows> <cols>\n", argv[0]);
+            fflush(stderr);
         }
         MPI_Finalize();
         exit(EXIT_FAILURE);
@@ -36,7 +37,9 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         printf("Matrix size: %dx%d\n", rows, cols);
+        fflush(stdout);
         printf("Number of processes: %d\n", size);
+        fflush(stdout);
     }
 
     if (rank == 0) {
@@ -46,6 +49,7 @@ int main(int argc, char *argv[]) {
 
         if (matrix == NULL || vector == NULL || global_result == NULL) {
             fprintf(stderr, "Memory allocation failed on master process\n");
+            fflush(stderr);
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
 
@@ -56,6 +60,7 @@ int main(int argc, char *argv[]) {
         vector = (int*) malloc(cols * sizeof(int));
         if (vector == NULL) {
             fprintf(stderr, "Memory allocation for vector failed on process %d\n", rank);
+            fflush(stderr);
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
     }
@@ -68,15 +73,18 @@ int main(int argc, char *argv[]) {
         for (int i = 1; i < size; i++) {
             int proc_rows = BLOCK_SIZE(i, size, rows);
             printf("Sending %d rows to process %d\n", proc_rows, i);
+            fflush(stdout);
         }
     }
     printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
+    fflush(stdout);
 
     int *local_matrix = (int*) malloc(local_rows * cols * sizeof(int));
     local_result = (int*) calloc(local_rows, sizeof(int));
 
     if (local_matrix == NULL || local_result == NULL) {
         fprintf(stderr, "Memory allocation failed on process %d\n", rank);
+        fflush(stderr);
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
@@ -90,24 +98,41 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    int *recv_counts = NULL;
+    int *displs = NULL;
+
     if (rank == 0) {
-        global_result = (int*) calloc(rows, sizeof(int));
+        recv_counts = (int*) malloc(size * sizeof(int));
+        displs = (int*) malloc(size * sizeof(int));
+        
+        int offset = 0;
+        for (int i = 0; i < size; i++) {
+            recv_counts[i] = BLOCK_SIZE(i, size, rows);
+            displs[i] = offset;
+            offset += recv_counts[i];
+        }
     }
-    MPI_Gather(local_result, local_rows, MPI_INT, global_result, local_rows, MPI_INT, 0, MPI_COMM_WORLD);
+
+    MPI_Gatherv(local_result, local_rows, MPI_INT, global_result, recv_counts, displs, MPI_INT, 0, MPI_COMM_WORLD);
 
     elapsed_time += MPI_Wtime();
 
     if (rank == 0) {
         printf("Resulting vector c:\n");
+        fflush(stdout);
         for (int i = 0; i < rows; i++) {
             printf("%.6f ", (double)global_result[i]);
+            fflush(stdout);
         }
         printf("\nTotal elapsed time: %10.6f seconds\n", elapsed_time);
+        fflush(stdout);
     }
 
     if (rank == 0) {
         free(matrix);
         free(global_result);
+        free(recv_counts);
+        free(displs);
     }
     free(vector);
     free(local_matrix);
