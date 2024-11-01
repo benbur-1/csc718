@@ -1,4 +1,4 @@
-// Filename: matrix_vector_multiplication_v6.c
+// Filename: matrix_vector_multiplication_v11.c
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,6 +69,32 @@ int main(int argc, char *argv[]) {
     int low_row = BLOCK_LOW(rank, size, rows);
     int high_row = BLOCK_HIGH(rank, size, rows);
 
+    // Print "handling" message for the root process
+    if (rank == 0) {
+        printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
+        fflush(stdout);
+    }
+
+    // Synchronize to ensure rank 0 prints first
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // Root process sends assignments and other processes print handling messages
+    if (rank == 0) {
+        for (int i = 1; i < size; i++) {
+            int proc_rows = BLOCK_SIZE(i, size, rows);
+            printf("Sending %d rows to process %d\n", proc_rows, i);
+            fflush(stdout);
+            MPI_Send(&proc_rows, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
+            MPI_Recv(NULL, 0, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+    } else {
+        int received_rows;
+        MPI_Recv(&received_rows, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
+        fflush(stdout);
+        MPI_Send(NULL, 0, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    }
+
     int *local_matrix = (int*) malloc(local_rows * cols * sizeof(int));
     local_result = (int*) calloc(local_rows, sizeof(int));
 
@@ -106,15 +132,6 @@ int main(int argc, char *argv[]) {
     MPI_Gatherv(local_result, local_rows, MPI_INT, global_result, recv_counts, displs, MPI_INT, 0, MPI_COMM_WORLD);
 
     elapsed_time += MPI_Wtime();
-
-    // Ensure ordered printing of each process's assigned row range
-    for (int i = 0; i < size; i++) {
-        if (rank == i) {
-            printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
-            fflush(stdout);
-        }
-        MPI_Barrier(MPI_COMM_WORLD);  // Synchronize before next process prints
-    }
 
     if (rank == 0) {
         printf("Resulting vector c:\n");
