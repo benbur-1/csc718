@@ -96,11 +96,13 @@ int main(int argc, char *argv[]) {
         for (int i = 1; i < size; i++) {
             MPI_Status status;
             int start_row;
-            MPI_Recv(&start_row, 1, MPI_INT, i, ROW_ASSIGN_TAG, MPI_COMM_WORLD, &status);
-
             int rows_to_receive;
+
+            // Receive the start row index and the count of rows
+            MPI_Recv(&start_row, 1, MPI_INT, i, ROW_ASSIGN_TAG, MPI_COMM_WORLD, &status);
             MPI_Recv(&rows_to_receive, 1, MPI_INT, i, ROW_ASSIGN_TAG, MPI_COMM_WORLD, &status);
 
+            // Receive the actual computed results
             MPI_Recv(&global_result[start_row], rows_to_receive, MPI_INT, i, ROW_ASSIGN_TAG, MPI_COMM_WORLD, &status);
         }
 
