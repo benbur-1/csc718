@@ -1,4 +1,12 @@
-// Filename: matrix_vector_multiplication_v11.c
+/*
+ * Author: Ben Burgess
+ * Date: 2024-10-31
+ * Class: CSC 718 - Dakota State University
+ * Email: ben.burgess@trojans.dsu.edu
+ *
+ * Description:
+ * This program performs matrix-vector multiplication using MPI with dynamic load balancing.
+ */
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>

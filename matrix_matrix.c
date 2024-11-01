@@ -1,100 +1,166 @@
+/*
+ * Author: Ben Burgess
+ * Date: 2024-10-31
+ * Class: CSC 718 - Dakota State University
+ * Email: ben.burgess@trojans.dsu.edu
+ *
+ * Description:
+ * This program performs matrix-matrix multiplication using MPI with dynamic load balancing.
+ */
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
+#define BLOCK_LOW(id, p, n) ((id)*(n)/(p))
+#define BLOCK_HIGH(id, p, n) (BLOCK_LOW((id)+1, p, n)-1)
+#define BLOCK_SIZE(id, p, n) (BLOCK_HIGH(id, p, n) - BLOCK_LOW(id, p, n) + 1)
+
 int main(int argc, char *argv[]) {
-    int rank, size, M, K, N;
-    int *A = NULL, *B = NULL, *C = NULL;
+    int rank, size, rows, cols;
+    double elapsed_time;
+    int *A = NULL;
+    int *B = NULL;
+    int *local_result = NULL;
+    int *global_result = NULL;
 
     MPI_Init(&argc, &argv);
+    MPI_Barrier(MPI_COMM_WORLD);
+    elapsed_time = -MPI_Wtime();
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     if (argc != 3) {
         if (rank == 0) {
-            fprintf(stderr, "Usage: %s <M> <K>\n", argv[0]);
+            fprintf(stderr, "Usage: %s <rows> <cols>\n", argv[0]);
+            fflush(stderr);
         }
         MPI_Finalize();
-        return EXIT_FAILURE;
+        exit(EXIT_FAILURE);
     }
 
-    M = atoi(argv[1]);
-    K = atoi(argv[2]);
-    N = K;  // Assuming square matrices for simplicity.
+    rows = atoi(argv[1]);
+    cols = atoi(argv[2]);
 
     if (rank == 0) {
-        printf("Matrix A size: %dx%d\n", M, K);
-        printf("Matrix B size: %dx%d\n", K, N);
-        printf("Matrix C size: %dx%d\n", M, N);
+        printf("Matrix A size: %dx%d\n", rows, cols);
+        printf("Matrix B size: %dx%d\n", cols, rows);
+        printf("Matrix C size: %dx%d\n", rows, rows);
+        fflush(stdout);
+    }
 
-        // Allocate memory for A, B, and C on the root process.
-        A = (int*) malloc(M * K * sizeof(int));
-        B = (int*) malloc(K * N * sizeof(int));
-        C = (int*) calloc(M * N, sizeof(int));  // C initialized to zero.
+    if (rank == 0) {
+        A = (int*) malloc(rows * cols * sizeof(int));
+        B = (int*) malloc(cols * rows * sizeof(int));
+        global_result = (int*) calloc(rows * rows, sizeof(int));
 
-        if (A == NULL || B == NULL || C == NULL) {
-            fprintf(stderr, "Memory allocation failed on root process.\n");
+        if (A == NULL || B == NULL || global_result == NULL) {
+            fprintf(stderr, "Memory allocation failed on master process\n");
+            fflush(stderr);
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
 
-        // Initialize matrices A and B with random values.
         srand(time(NULL));
-        for (int i = 0; i < M * K; i++) A[i] = rand() % 10 + 1;
-        for (int i = 0; i < K * N; i++) B[i] = rand() % 10 + 1;
+        for (int i = 0; i < rows * cols; i++) A[i] = rand() % 10 + 1;
+        for (int i = 0; i < cols * rows; i++) B[i] = rand() % 10 + 1;
+    } else {
+        B = (int*) malloc(cols * rows * sizeof(int));
+        if (B == NULL) {
+            fprintf(stderr, "Memory allocation for B failed on process %d\n", rank);
+            fflush(stderr);
+            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+        }
     }
 
-    // Allocate space for local computations.
-    int rows_per_process = M / size;
-    int *local_A = (int*) malloc(rows_per_process * K * sizeof(int));
-    int *local_C = (int*) calloc(rows_per_process * N, sizeof(int));
+    int local_rows = BLOCK_SIZE(rank, size, rows);
+    int low_row = BLOCK_LOW(rank, size, rows);
+    int high_row = BLOCK_HIGH(rank, size, rows);
 
-    if (local_A == NULL || local_C == NULL) {
-        fprintf(stderr, "Memory allocation failed on rank %d.\n", rank);
+    if (rank == 0) {
+        printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
+        fflush(stdout);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        for (int i = 1; i < size; i++) {
+            int proc_rows = BLOCK_SIZE(i, size, rows);
+            printf("Sending %d rows to process %d\n", proc_rows, i);
+            fflush(stdout);
+            MPI_Send(&proc_rows, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
+            MPI_Recv(NULL, 0, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+    } else {
+        int received_rows;
+        MPI_Recv(&received_rows, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
+        fflush(stdout);
+        MPI_Send(NULL, 0, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    }
+
+    int *local_A = (int*) malloc(local_rows * cols * sizeof(int));
+    local_result = (int*) calloc(local_rows * rows, sizeof(int));
+
+    if (local_A == NULL || local_result == NULL) {
+        fprintf(stderr, "Memory allocation failed on process %d\n", rank);
+        fflush(stderr);
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
-    // Broadcast matrix B from root to all processes.
-    if (rank == 0 && B == NULL) {
-        fprintf(stderr, "Matrix B not allocated on root.\n");
-        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-    }
-    MPI_Bcast(B, K * N, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Scatter(A, local_rows * cols, MPI_INT, local_A, local_rows * cols, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(B, cols * rows, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Scatter rows of A to each process.
-    MPI_Scatter(A, rows_per_process * K, MPI_INT, local_A, rows_per_process * K, MPI_INT, 0, MPI_COMM_WORLD);
-
-    // Each process calculates its portion of the matrix C.
-    for (int i = 0; i < rows_per_process; i++) {
-        for (int j = 0; j < N; j++) {
-            for (int k = 0; k < K; k++) {
-                local_C[i * N + j] += local_A[i * K + k] * B[k * N + j];
+    for (int i = 0; i < local_rows; i++) {
+        for (int j = 0; j < rows; j++) {
+            local_result[i * rows + j] = 0;
+            for (int k = 0; k < cols; k++) {
+                local_result[i * rows + j] += local_A[i * cols + k] * B[k * rows + j];
             }
         }
     }
 
-    // Gather results from all processes into matrix C on the root process.
-    MPI_Gather(local_C, rows_per_process * N, MPI_INT, C, rows_per_process * N, MPI_INT, 0, MPI_COMM_WORLD);
+    int *recv_counts = NULL;
+    int *displs = NULL;
 
-    // Root process prints the result matrix C.
+    if (rank == 0) {
+        recv_counts = (int*) malloc(size * sizeof(int));
+        displs = (int*) malloc(size * sizeof(int));
+        
+        int offset = 0;
+        for (int i = 0; i < size; i++) {
+            recv_counts[i] = BLOCK_SIZE(i, size, rows) * rows;
+            displs[i] = offset;
+            offset += recv_counts[i];
+        }
+    }
+
+    MPI_Gatherv(local_result, local_rows * rows, MPI_INT, global_result, recv_counts, displs, MPI_INT, 0, MPI_COMM_WORLD);
+
+    elapsed_time += MPI_Wtime();
+
     if (rank == 0) {
         printf("Resulting matrix C:\n");
-        for (int i = 0; i < M; i++) {
-            for (int j = 0; j < N; j++) {
-                printf("%d ", C[i * N + j]);
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < rows; j++) {
+                printf("%.6f ", (double)global_result[i * rows + j]);
             }
             printf("\n");
         }
+        printf("\nTotal elapsed time: %10.6f seconds\n", elapsed_time);
+        fflush(stdout);
     }
 
-    // Free allocated memory.
     if (rank == 0) {
         free(A);
-        free(B);
-        free(C);
+        free(global_result);
+        free(recv_counts);
+        free(displs);
     }
+    free(B);
     free(local_A);
-    free(local_C);
+    free(local_result);
 
     MPI_Finalize();
     return 0;
