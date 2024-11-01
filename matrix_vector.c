@@ -5,7 +5,7 @@
  * Email: ben.burgess@trojans.dsu.edu
  *
  * Description:
- * This program performs matrix-vector multiplication using MPI with dynamic load balancing.
+ * This program performs matrix-vector multiplication with dynamic load balancing using MPI.
  */
 #include <mpi.h>
 #include <stdio.h>
@@ -45,9 +45,7 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         printf("Matrix size: %dx%d\n", rows, cols);
-        fflush(stdout);
         printf("Number of processes: %d\n", size);
-        fflush(stdout);
     }
 
     if (rank == 0) {
@@ -57,7 +55,6 @@ int main(int argc, char *argv[]) {
 
         if (matrix == NULL || vector == NULL || global_result == NULL) {
             fprintf(stderr, "Memory allocation failed on master process\n");
-            fflush(stderr);
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
 
@@ -68,7 +65,6 @@ int main(int argc, char *argv[]) {
         vector = (int*) malloc(cols * sizeof(int));
         if (vector == NULL) {
             fprintf(stderr, "Memory allocation for vector failed on process %d\n", rank);
-            fflush(stderr);
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
     }
@@ -80,18 +76,15 @@ int main(int argc, char *argv[]) {
     // Print "handling" message for the root process
     if (rank == 0) {
         printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
-        fflush(stdout);
     }
 
     // Synchronize to ensure rank 0 prints first
     MPI_Barrier(MPI_COMM_WORLD);
 
-    // Root process sends assignments and other processes print handling messages
     if (rank == 0) {
         for (int i = 1; i < size; i++) {
             int proc_rows = BLOCK_SIZE(i, size, rows);
             printf("Sending %d rows to process %d\n", proc_rows, i);
-            fflush(stdout);
             MPI_Send(&proc_rows, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
             MPI_Recv(NULL, 0, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
@@ -99,7 +92,6 @@ int main(int argc, char *argv[]) {
         int received_rows;
         MPI_Recv(&received_rows, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         printf("Process %d is handling rows %d to %d (%d rows)\n", rank, low_row, high_row, local_rows);
-        fflush(stdout);
         MPI_Send(NULL, 0, MPI_INT, 0, 0, MPI_COMM_WORLD);
     }
 
@@ -108,7 +100,6 @@ int main(int argc, char *argv[]) {
 
     if (local_matrix == NULL || local_result == NULL) {
         fprintf(stderr, "Memory allocation failed on process %d\n", rank);
-        fflush(stderr);
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
@@ -143,13 +134,10 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         printf("Resulting vector c:\n");
-        fflush(stdout);
         for (int i = 0; i < rows; i++) {
             printf("%.6f ", (double)global_result[i]);
-            fflush(stdout);
         }
         printf("\nTotal elapsed time: %10.6f seconds\n", elapsed_time);
-        fflush(stdout);
     }
 
     if (rank == 0) {
