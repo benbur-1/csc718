@@ -103,31 +103,61 @@ int main(int argc, char *argv[]) {
     int total_clusters;
     MPI_Reduce(&local_cluster_count, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    // Find smallest-sum cluster
+    // Initialize smallest sum and cluster
     int local_smallest_sum = INT_MAX;
-    int smallest_cluster[3] = {0, 0, 0};
+    int local_smallest_cluster[3] = {0, 0, 0};
+
+    // Find smallest cluster in the current process
     for (int i = 0; i < local_cluster_count; i++) {
         int sum = clusters[i][0] + clusters[i][1] + clusters[i][2];
         if (sum < local_smallest_sum) {
             local_smallest_sum = sum;
-            smallest_cluster[0] = clusters[i][0];
-            smallest_cluster[1] = clusters[i][1];
-            smallest_cluster[2] = clusters[i][2];
+            local_smallest_cluster[0] = clusters[i][0];
+            local_smallest_cluster[1] = clusters[i][1];
+            local_smallest_cluster[2] = clusters[i][2];
         }
     }
 
-    int global_smallest_cluster[3];
-    MPI_Reduce(smallest_cluster, global_smallest_cluster, 3, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
+    // Custom structure to reduce both smallest sum and cluster
+    typedef struct {
+        int sum;
+        int cluster[3];
+    } ClusterData;
 
-    // End timing
-    MPI_Barrier(MPI_COMM_WORLD);
-    end_time = MPI_Wtime();
+    ClusterData local_data = {local_smallest_sum, {local_smallest_cluster[0], local_smallest_cluster[1], local_smallest_cluster[2]}};
+    ClusterData global_data;
 
-    // Output results
+    // Custom MPI reduction operation
+    MPI_Datatype cluster_type;
+    MPI_Type_contiguous(4, MPI_INT, &cluster_type); // Sum + 3 integers
+    MPI_Type_commit(&cluster_type);
+
+    void min_cluster(void *in, void *inout, int *len, MPI_Datatype *dtype) {
+        ClusterData *a = (ClusterData *)in;
+        ClusterData *b = (ClusterData *)inout;
+        if (a->sum < b->sum) {
+            b->sum = a->sum;
+            b->cluster[0] = a->cluster[0];
+            b->cluster[1] = a->cluster[1];
+            b->cluster[2] = a->cluster[2];
+        }
+    }
+
+    MPI_Op custom_op;
+    MPI_Op_create(min_cluster, 1, &custom_op);
+
+    // Perform reduction
+    MPI_Reduce(&local_data, &global_data, 1, cluster_type, custom_op, 0, MPI_COMM_WORLD);
+
+    // Clean up
+    MPI_Op_free(&custom_op);
+    MPI_Type_free(&cluster_type);
+
+    // Rank 0 prints the smallest cluster
     if (rank == 0) {
         printf("Total prime clusters found: %d\n", total_clusters);
-        printf("Smallest-sum cluster: {%d, %d, %d}\n", global_smallest_cluster[0], global_smallest_cluster[1], global_smallest_cluster[2]);
-        printf("Execution time: %.4f seconds\n", end_time - start_time);
+        printf("Smallest-sum cluster: {%d, %d, %d}\n", global_data.cluster[0], global_data.cluster[1], global_data.cluster[2]);
+        printf("Execution time: %.4f seconds\n", MPI_Wtime() - start_time);
     }
 
     // Free allocated memory
