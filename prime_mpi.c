@@ -19,16 +19,23 @@
 #define RANGE_END 1000000
 
 // Function to mark non-prime numbers
-void sieve_of_eratosthenes(bool *prime, int start, int end) {
+void sieve_of_eratosthenes(bool *prime, int start, int end, int global_start) {
     int limit = (int)sqrt(end);
+
+    // Mark non-primes starting from the smallest prime number
     for (int i = 2; i <= limit; i++) {
         if (prime[i]) {
-            for (int j = i * i; j <= end; j += i) {
-                prime[j] = false;
+            int first_multiple = (start / i) * i;
+            if (first_multiple < start) first_multiple += i;
+            if (first_multiple == i) first_multiple += i;
+
+            for (int j = first_multiple; j <= end; j += i) {
+                prime[j - global_start] = false;
             }
         }
     }
 }
+
 
 // Function to check and count prime clusters
 int find_prime_clusters(bool *prime, int start, int end, int **clusters) {
