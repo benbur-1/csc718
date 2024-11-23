@@ -93,14 +93,15 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < local_range_size; i++) is_prime[i] = true;
 
     // Perform sieve of Eratosthenes
-    sieve_of_eratosthenes(is_prime, local_start, local_end, global_start); // Use global_start here
+    sieve_of_eratosthenes(is_prime, local_start, local_end, global_start);
 
     // Collect primes into an array
     int *local_primes = (int *)malloc(local_range_size * sizeof(int));
     int prime_count = collect_primes(is_prime, local_start, local_end, local_primes);
 
     // Detect clusters
-    int **clusters = (int **)malloc(prime_count * sizeof(int *));
+    int max_clusters = prime_count / 3; // Adjust as needed
+    int **clusters = (int **)malloc(max_clusters * sizeof(int *)); 
     int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters);
 
     // Share boundary primes with neighboring processes
@@ -116,13 +117,17 @@ int main(int argc, char *argv[]) {
     if (rank > 0) {
         int neighbor_primes[2];
         MPI_Recv(neighbor_primes, 2, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        // Check for potential clusters at the boundary
         if (prime_count > 0 && neighbor_primes[1] - neighbor_primes[0] == 2 && local_primes[0] - neighbor_primes[1] == 2) {
-            clusters[local_cluster_count] = (int *)malloc(3 * sizeof(int));
-            clusters[local_cluster_count][0] = neighbor_primes[0];
-            clusters[local_cluster_count][1] = neighbor_primes[1];
-            clusters[local_cluster_count][2] = local_primes[0];
-            local_cluster_count++;
+            // Ensure enough space in clusters array
+            if (local_cluster_count < max_clusters) { 
+                clusters[local_cluster_count] = (int *)malloc(3 * sizeof(int));
+                clusters[local_cluster_count][0] = neighbor_primes[0];
+                clusters[local_cluster_count][1] = neighbor_primes[1];
+                clusters[local_cluster_count][2] = local_primes[0];
+                local_cluster_count++;
+            } else {
+                fprintf(stderr, "Process %d: Cluster array full!\n", rank);
+            }
         }
     }
 
