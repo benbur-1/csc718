@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <limits.h>
 
 #define RANGE_START 2
 #define RANGE_END 1000000
