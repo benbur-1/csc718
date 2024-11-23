@@ -1,3 +1,17 @@
+/*
+ * Author: Ben Burgess
+ * Date: 2024-11-23
+ * Class: CSC 718 - Dakota State University
+ * Email: ben.burgess@trojans.dsu.edu
+ *
+ * Description:
+ * This program implements both a sequential and a parallel version of the merge sort algorithm using OpenMP.
+ * The sequential version is used as a baseline, while the parallel version demonstrates performance improvements
+ * with different thread counts. The program sorts an array of at least 1,000,000 integers and profiles the performance
+ * of both versions to analyze the effects of parallelization.
+ */
+
+// File: merge_sort_openmp.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
@@ -36,15 +50,8 @@ void merge(int arr[], int left, int mid, int right) {
     free(R);
 }
 
-// Sequential merge sort
-void merge_sort(int arr[], int left, int right) {
-    if (left < right) {
-        int mid = left + (right - left) / 2;
-        merge_sort(arr, left, mid);
-        merge_sort(arr, mid + 1, right);
-        merge(arr, left, mid, right);
-    }
-}
+// Function prototype for the sequential merge sort
+void merge_sort(int arr[], int left, int right);
 
 // Parallel merge sort using OpenMP
 void parallel_merge_sort(int arr[], int left, int right, int depth) {
@@ -63,6 +70,16 @@ void parallel_merge_sort(int arr[], int left, int right, int depth) {
             }
             merge(arr, left, mid, right);
         }
+    }
+}
+
+// Sequential merge sort
+void merge_sort(int arr[], int left, int right) {
+    if (left < right) {
+        int mid = left + (right - left) / 2;
+        merge_sort(arr, left, mid);
+        merge_sort(arr, mid + 1, right);
+        merge(arr, left, mid, right);
     }
 }
 
