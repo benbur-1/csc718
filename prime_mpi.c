@@ -8,7 +8,7 @@
 #define RANGE_END 1000000
 
 // Function to generate primes using the Sieve of Eratosthenes
-void sieveOfEratosthenes(int start, int end, int *primes) {
+void sieveOfEratosthenes(int start, int end, int *primes, int *local_prime_count) {
     int range_size = end - start + 1;
     int sqrt_end = sqrt(end);
     int *is_prime = malloc((sqrt_end + 1) * sizeof(int));
@@ -32,6 +32,14 @@ void sieveOfEratosthenes(int start, int end, int *primes) {
             for (int j = multiple; j <= end; j += p) {
                 primes[j - start] = 0;
             }
+        }
+    }
+
+    // Count primes in the local range
+    *local_prime_count = 0;
+    for (int i = 0; i < range_size; i++) {
+        if (primes[i]) {
+            (*local_prime_count)++;
         }
     }
 
@@ -88,16 +96,18 @@ int main(int argc, char *argv[]) {
     double start_time = MPI_Wtime();
 
     int *primes = malloc((end - start + 1) * sizeof(int));
-    sieveOfEratosthenes(start, end, primes);
+    int local_prime_count = 0;
+    sieveOfEratosthenes(start, end, primes, &local_prime_count);
 
     int local_clusters, local_smallest_sum;
     int local_smallest_cluster[3] = {-1, -1, -1};
     find_prime_clusters(start, end, primes, &local_clusters, &local_smallest_sum, local_smallest_cluster);
 
     // Reduce results to rank 0
-    int total_clusters, smallest_sum_cluster;
+    int total_prime_count, total_clusters, smallest_sum_cluster;
     int global_smallest_cluster[3] = {-1, -1, -1};
 
+    MPI_Reduce(&local_prime_count, &total_prime_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_clusters, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_smallest_sum, &smallest_sum_cluster, 1, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
     MPI_Reduce(local_smallest_cluster, global_smallest_cluster, 3, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
@@ -105,7 +115,8 @@ int main(int argc, char *argv[]) {
     double end_time = MPI_Wtime();
 
     if (rank == 0) {
-        printf("\nTotal prime clusters found: %d\n", total_clusters);
+        printf("\nTotal primes found: %d\n", total_prime_count);
+        printf("Total prime clusters found: %d\n", total_clusters);
         printf("Smallest-sum cluster: {%d, %d, %d}\n", global_smallest_cluster[0], global_smallest_cluster[1], global_smallest_cluster[2]);
         printf("Execution time: %f seconds\n", end_time - start_time);
     }
