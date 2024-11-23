@@ -49,7 +49,7 @@ int collect_primes(bool *is_prime, int start, int end, int *primes) {
     return count;
 }
 
-// Function to find prime clusters {p, p+2, p+4}
+// Function to find prime clusters {p, p+2, p+4} in a range
 int find_prime_clusters(int *primes, int prime_count, int **clusters) {
     int count = 0;
     for (int i = 0; i < prime_count - 2; i++) {
@@ -93,18 +93,26 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < local_range_size; i++) is_prime[i] = true;
 
     // Perform sieve of Eratosthenes
-    sieve_of_eratosthenes(is_prime, local_start, local_end, global_start);
+    sieve_of_eratosthenes(is_prime, local_start, local_end, local_start);
 
     // Collect primes into an array
     int *local_primes = (int *)malloc(local_range_size * sizeof(int));
     int prime_count = collect_primes(is_prime, local_start, local_end, local_primes);
 
+    // Debug: Print primes found by each process
+    printf("Process %d found %d primes.\n", rank, prime_count);
+
     // Detect clusters
-    int max_clusters = prime_count / 3; // Adjust as needed
-    int **clusters = (int **)malloc(max_clusters * sizeof(int *)); 
+    int **clusters = (int **)malloc(prime_count * sizeof(int *));
     int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters);
 
-    // Share boundary primes with neighboring processes
+    // Debug: Print clusters found by each process
+    for (int i = 0; i < local_cluster_count; i++) {
+        printf("Process %d found cluster: {%d, %d, %d}\n", rank,
+               clusters[i][0], clusters[i][1], clusters[i][2]);
+    }
+
+    // Handle boundary primes for cross-boundary cluster detection
     int edge_primes[2] = {0, 0};
     if (prime_count > 1) {
         edge_primes[0] = local_primes[prime_count - 2];
@@ -117,17 +125,14 @@ int main(int argc, char *argv[]) {
     if (rank > 0) {
         int neighbor_primes[2];
         MPI_Recv(neighbor_primes, 2, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        if (prime_count > 0 && neighbor_primes[1] - neighbor_primes[0] == 2 && local_primes[0] - neighbor_primes[1] == 2) {
-            // Ensure enough space in clusters array
-            if (local_cluster_count < max_clusters) { 
-                clusters[local_cluster_count] = (int *)malloc(3 * sizeof(int));
-                clusters[local_cluster_count][0] = neighbor_primes[0];
-                clusters[local_cluster_count][1] = neighbor_primes[1];
-                clusters[local_cluster_count][2] = local_primes[0];
-                local_cluster_count++;
-            } else {
-                fprintf(stderr, "Process %d: Cluster array full!\n", rank);
-            }
+
+        // Check for cross-boundary clusters
+        if (neighbor_primes[1] - neighbor_primes[0] == 2 && local_primes[0] - neighbor_primes[1] == 2) {
+            clusters[local_cluster_count] = (int *)malloc(3 * sizeof(int));
+            clusters[local_cluster_count][0] = neighbor_primes[0];
+            clusters[local_cluster_count][1] = neighbor_primes[1];
+            clusters[local_cluster_count][2] = local_primes[0];
+            local_cluster_count++;
         }
     }
 
