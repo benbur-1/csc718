@@ -1,107 +1,136 @@
 #include <mpi.h>
-#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdbool.h>
+#include <limits.h>
 
-// Utility macros for block decomposition
-#define BLOCK_LOW(id, p, n) ((id) * (n) / (p))
-#define BLOCK_HIGH(id, p, n) (BLOCK_LOW((id) + 1, p, n) - 1)
-#define BLOCK_SIZE(id, p, n) (BLOCK_LOW((id) + 1, p, n) - BLOCK_LOW(id, p, n))
+// Function to mark non-prime numbers using the Sieve of Eratosthenes
+void sieve_of_eratosthenes(bool *is_prime, int start, int end, int global_start) {
+    int sqrt_end = (int)sqrt(end) + 1;
 
-// Sieve function
-void sieve_of_eratosthenes(bool *is_prime, int low, int high, int sqrt_n) {
-    int i, j;
-    for (i = 2; i <= sqrt_n; i++) {
-        if (is_prime[i]) {
-            int start = (low % i == 0) ? low : (low / i + 1) * i;
-            if (start == i) start += i; // Skip marking the number itself
-            #pragma omp parallel for
-            for (j = start; j <= high; j += i) {
-                is_prime[j - low] = false;
+    // Mark non-primes in the [2, sqrt(end)] range
+    bool *small_primes = (bool *)malloc((sqrt_end + 1) * sizeof(bool));
+    for (int i = 0; i <= sqrt_end; i++) small_primes[i] = true;
+    for (int i = 2; i <= sqrt_end; i++) {
+        if (small_primes[i]) {
+            for (int j = i * i; j <= sqrt_end; j += i) {
+                small_primes[j] = false;
             }
         }
     }
-}
 
-// Detect prime clusters
-int detect_clusters(int *primes, int prime_count, int **clusters) {
-    int cluster_count = 0;
-    for (int i = 0; i < prime_count - 2; i++) {
-        if (primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
-            clusters[cluster_count] = (int *)malloc(3 * sizeof(int));
-            clusters[cluster_count][0] = primes[i];
-            clusters[cluster_count][1] = primes[i + 1];
-            clusters[cluster_count][2] = primes[i + 2];
-            cluster_count++;
+    // Mark non-primes in the [start, end] range using small primes
+    for (int i = 2; i <= sqrt_end; i++) {
+        if (small_primes[i]) {
+            int first_multiple = (start / i) * i;
+            if (first_multiple < start) first_multiple += i;
+            if (first_multiple == i) first_multiple += i;
+            for (int j = first_multiple; j <= end; j += i) {
+                is_prime[j - start] = false;
+            }
         }
     }
-    return cluster_count;
+
+    free(small_primes);
+}
+
+// Function to find prime clusters {p, p+2, p+4}
+int find_prime_clusters(int *primes, int prime_count, int **clusters, int *smallest_sum_cluster) {
+    int count = 0;
+    int min_sum = INT_MAX;
+
+    for (int i = 0; i < prime_count - 2; i++) {
+        if (primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
+            int sum = primes[i] + primes[i + 1] + primes[i + 2];
+            if (sum < min_sum) {
+                min_sum = sum;
+                (*smallest_sum_cluster)[0] = primes[i];
+                (*smallest_sum_cluster)[1] = primes[i + 1];
+                (*smallest_sum_cluster)[2] = primes[i + 2];
+            }
+            count++;
+        }
+    }
+
+    return count;
 }
 
 int main(int argc, char *argv[]) {
     int rank, size;
-    int global_low = 2, global_high = 1000000;
+    int global_start = 2, global_end = 1000000;
     double start_time, end_time;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    int range = global_high - global_low + 1;
-    int local_low = global_low + BLOCK_LOW(rank, size, range);
-    int local_high = global_low + BLOCK_HIGH(rank, size, range);
-    int local_range = local_high - local_low + 1;
+    // Divide the range among processes
+    int range = global_end - global_start + 1;
+    int local_start = global_start + (rank * range / size);
+    int local_end = global_start + ((rank + 1) * range / size) - 1;
+    if (rank == size - 1) local_end = global_end;
+
+    int local_range = local_end - local_start + 1;
 
     if (rank == 0) {
-        printf("Searching for prime clusters in range [%d, %d] using %d processes.\n", global_low, global_high, size);
+        printf("Searching for prime clusters in range [%d, %d] using %d processes.\n", global_start, global_end, size);
     }
-    printf("Process %d handling range [%d, %d]\n", rank, local_low, local_high);
+    printf("Process %d handling range [%d, %d]\n", rank, local_start, local_end);
 
     MPI_Barrier(MPI_COMM_WORLD);
     start_time = MPI_Wtime();
 
-    // Initialize sieve array
+    // Allocate memory for sieve
     bool *is_prime = (bool *)malloc(local_range * sizeof(bool));
     for (int i = 0; i < local_range; i++) is_prime[i] = true;
 
-    // Broadcast small primes from process 0
-    int sqrt_n = (int)sqrt(global_high);
-    bool *small_prime = NULL;
-    if (rank == 0) {
-        small_prime = (bool *)malloc((sqrt_n + 1) * sizeof(bool));
-        for (int i = 0; i <= sqrt_n; i++) small_prime[i] = true;
-        sieve_of_eratosthenes(small_prime, 2, sqrt_n, sqrt_n);
-    }
-    MPI_Bcast(small_prime, sqrt_n + 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
+    // Perform sieve
+    sieve_of_eratosthenes(is_prime, local_start, local_end, global_start);
 
-    // Perform sieve on local range
-    sieve_of_eratosthenes(is_prime, local_low, local_high, sqrt_n);
-
-    // Gather primes
+    // Collect primes
     int *local_primes = (int *)malloc(local_range * sizeof(int));
     int prime_count = 0;
     for (int i = 0; i < local_range; i++) {
         if (is_prime[i]) {
-            local_primes[prime_count++] = local_low + i;
+            local_primes[prime_count++] = local_start + i;
         }
+    }
+
+    // Handle boundary primes
+    if (rank > 0) {
+        int previous_prime;
+        MPI_Recv(&previous_prime, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        if (previous_prime != -1 && local_primes[0] - previous_prime == 2) {
+            if (prime_count >= 2 && local_primes[1] - local_primes[0] == 2) {
+                prime_count++;
+            }
+        }
+    }
+    if (rank < size - 1) {
+        int last_prime = (prime_count > 0) ? local_primes[prime_count - 1] : -1;
+        MPI_Send(&last_prime, 1, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
     }
 
     // Detect clusters
     int **clusters = (int **)malloc(prime_count * sizeof(int *));
-    int local_cluster_count = detect_clusters(local_primes, prime_count, clusters);
+    int *smallest_sum_cluster = (int *)malloc(3 * sizeof(int));
+    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters, &smallest_sum_cluster);
 
     // Reduce cluster counts
-    int total_clusters = 0;
+    int total_clusters;
     MPI_Reduce(&local_cluster_count, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    // Reduce smallest-sum cluster
+    int global_smallest_cluster[3];
+    MPI_Reduce(smallest_sum_cluster, global_smallest_cluster, 3, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
 
     // Collect execution time
     end_time = MPI_Wtime();
 
-    // Process 0 displays results
     if (rank == 0) {
         printf("Total prime clusters found: %d\n", total_clusters);
+        printf("Smallest-sum cluster: {%d, %d, %d}\n", global_smallest_cluster[0], global_smallest_cluster[1], global_smallest_cluster[2]);
         printf("Execution time: %.4f seconds\n", end_time - start_time);
     }
 
@@ -110,7 +139,7 @@ int main(int argc, char *argv[]) {
     free(clusters);
     free(local_primes);
     free(is_prime);
-    if (rank == 0) free(small_prime);
+    free(smallest_sum_cluster);
 
     MPI_Finalize();
     return 0;
