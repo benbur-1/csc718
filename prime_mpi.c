@@ -1,3 +1,13 @@
+/*
+ * Author: Ben Burgess
+ * Date: 2024-11-23
+ * Class: CSC 718 - Dakota State University
+ * Email: ben.burgess@trojans.dsu.edu
+ *
+ * Description:
+ * This program searches for prime clusters of size three within the range [2, 1000000] using MPI to parallelize the search.
+ */
+
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
