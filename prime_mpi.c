@@ -22,10 +22,12 @@ void sieve_of_eratosthenes(bool *is_prime, int start, int end, int global_start)
 }
 
 // Function to find prime clusters {p, p+2, p+4}
-int find_prime_clusters(int *primes, int prime_count, int **clusters) {
+int find_prime_clusters(int *primes, int prime_count, int **clusters, int global_start, int global_end) {
     int count = 0;
     for (int i = 0; i < prime_count - 2; i++) {
-        if (primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
+        // Ensure the cluster is within the global range
+        if (primes[i] >= global_start && primes[i + 2] <= global_end &&
+            primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
             clusters[count] = (int *)malloc(3 * sizeof(int));
             clusters[count][0] = primes[i];
             clusters[count][1] = primes[i + 1];
@@ -74,11 +76,7 @@ int main(int argc, char *argv[]) {
         if (is_prime[i]) local_primes[prime_count++] = local_start + i;
     }
 
-    // Find prime clusters
-    int **clusters = (int **)malloc(prime_count * sizeof(int *));
-    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters);
-
-    // Handle boundary condition: exchange edge primes
+    // Share boundary primes for cluster detection
     int edge_primes[2] = {0, 0};
     if (prime_count > 1) {
         edge_primes[0] = local_primes[prime_count - 2];
@@ -90,14 +88,16 @@ int main(int argc, char *argv[]) {
     if (rank > 0) {
         int neighbor_primes[2];
         MPI_Recv(neighbor_primes, 2, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // Check if the neighbor primes form a valid cluster with the first primes in this process
         if (neighbor_primes[1] - neighbor_primes[0] == 2 && local_primes[0] - neighbor_primes[1] == 2) {
-            clusters[local_cluster_count] = (int *)malloc(3 * sizeof(int));
-            clusters[local_cluster_count][0] = neighbor_primes[0];
-            clusters[local_cluster_count][1] = neighbor_primes[1];
-            clusters[local_cluster_count][2] = local_primes[0];
-            local_cluster_count++;
+            // Add the spanning cluster
+            printf("Boundary cluster: {%d, %d, %d}\n", neighbor_primes[0], neighbor_primes[1], local_primes[0]);
         }
     }
+
+    // Find prime clusters
+    int **clusters = (int **)malloc(prime_count * sizeof(int *));
+    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters, global_start, global_end);
 
     // Gather total cluster count
     int total_clusters;
