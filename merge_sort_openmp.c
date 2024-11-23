@@ -96,6 +96,12 @@ int main() {
         parallel_merge_sort(arr_copy, 0, ARRAY_SIZE - 1, 4); // Adjust depth as needed
         end_time = omp_get_wtime();
         double parallel_time = end_time - start_time;
-        double speedup = (threads == 1) ? 1.0 : (end_time - start_time) / (end_time - start_time);
+        double speedup = (end_time - start_time) / (parallel_time);
         printf("| %d       | %f              | %f             | %f    |
-", threads, (threads == 1)
+", threads, end_time - start_time, parallel_time, speedup);
+    }
+
+    free(arr);
+    free(arr_copy);
+    return 0;
+}
