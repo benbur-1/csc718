@@ -93,6 +93,9 @@ int main(int argc, char *argv[]) {
         if (is_prime[i]) local_primes[prime_count++] = local_start + i;
     }
 
+    // Debug: Print the number of primes found per process
+    printf("Process %d found %d primes.\n", rank, prime_count);
+
     // Share boundary primes for cluster detection
     int edge_primes[2] = {0, 0};
     if (prime_count > 1) {
@@ -177,11 +180,4 @@ int main(int argc, char *argv[]) {
     }
 
     // Free allocated memory
-    for (int i = 0; i < local_cluster_count; i++) free(clusters[i]);
-    free(clusters);
-    free(local_primes);
-    free(is_prime);
-
-    MPI_Finalize();
-    return 0;
-}
+    for (int i = 0; i < local_cluster_count;
