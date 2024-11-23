@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
 #include <limits.h>
 
 #define RANGE_START 2
@@ -20,7 +19,7 @@ int is_prime(int n) {
 }
 
 // Function to find prime clusters
-void find_prime_clusters(int start, int end, int *total_clusters, int *smallest_sum_cluster) {
+void find_prime_clusters(int start, int end, int *total_clusters, int *smallest_sum_cluster, int *last_two_primes) {
     int prev_prime = -1, prev_prev_prime = -1;
     *total_clusters = 0;
     *smallest_sum_cluster = INT_MAX;
@@ -38,6 +37,10 @@ void find_prime_clusters(int start, int end, int *total_clusters, int *smallest_
             prev_prime = i;
         }
     }
+
+    // Store the last two primes for boundary handling
+    last_two_primes[0] = prev_prev_prime;
+    last_two_primes[1] = prev_prime;
 }
 
 int main(int argc, char *argv[]) {
@@ -50,23 +53,46 @@ int main(int argc, char *argv[]) {
     int start = RANGE_START + rank * range_size;
     int end = (rank == size - 1) ? RANGE_END : start + range_size - 1;
 
+    // Adjust for boundary overlap
+    if (rank != 0) start -= 2;
+
     printf("Process %d handling range [%d, %d]\n", rank, start, end);
 
-    clock_t start_time = clock();
+    double start_time = MPI_Wtime();
 
     int local_clusters, local_smallest_sum;
-    find_prime_clusters(start, end, &local_clusters, &local_smallest_sum);
+    int last_two_primes[2] = {-1, -1}, neighbor_primes[2] = {-1, -1};
+
+    find_prime_clusters(start, end, &local_clusters, &local_smallest_sum, last_two_primes);
+
+    // Communicate boundary primes with neighbors
+    if (rank < size - 1) {
+        MPI_Send(last_two_primes, 2, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
+    }
+    if (rank > 0) {
+        MPI_Recv(neighbor_primes, 2, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // Check for clusters spanning ranges
+        if (neighbor_primes[0] != -1 && neighbor_primes[1] != -1) {
+            if (is_prime(start) && (start - neighbor_primes[1] <= 6)) {
+                local_clusters++;
+                int cluster_sum = neighbor_primes[0] + neighbor_primes[1] + start;
+                if (cluster_sum < local_smallest_sum) {
+                    local_smallest_sum = cluster_sum;
+                }
+            }
+        }
+    }
 
     int total_clusters, smallest_sum_cluster;
     MPI_Reduce(&local_clusters, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_smallest_sum, &smallest_sum_cluster, 1, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
 
+    double end_time = MPI_Wtime();
+
     if (rank == 0) {
-        printf("Total prime clusters found: %d\n", total_clusters);
+        printf("\nTotal prime clusters found: %d\n", total_clusters);
         printf("Smallest-sum cluster: %d\n", smallest_sum_cluster);
-        clock_t end_time = clock();
-        double time_spent = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-        printf("Execution time: %f seconds\n", time_spent);
+        printf("Execution time: %f seconds\n", end_time - start_time);
     }
 
     MPI_Finalize();
