@@ -13,6 +13,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <time.h>
+#include <limits.h> // Add this line
 
 #define RANGE_START 2
 #define RANGE_END 1000000
