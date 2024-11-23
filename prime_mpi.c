@@ -39,10 +39,10 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // Calculate the sub-range for each process
+    // Calculate the sub-range for each process with overlap
     int range_size = (END - START + 1) / size;
-    start_range = START + rank * range_size;
-    end_range = (rank == size - 1) ? END : start_range + range_size - 1;
+    start_range = (rank == 0) ? START : START + rank * range_size - 2;
+    end_range = (rank == size - 1) ? END : start_range + range_size + 1;
 
     if (rank == 0) {
         printf("Searching for prime clusters in range [%d, %d] using %d processes.\n", START, END, size);
