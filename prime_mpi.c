@@ -5,56 +5,9 @@
 #include <stdbool.h>
 #include <limits.h>
 
-// Function to mark non-prime numbers using the Sieve of Eratosthenes
-void sieve_of_eratosthenes(bool *is_prime, int start, int end, int global_start) {
-    int sqrt_end = (int)sqrt(end) + 1;
-
-    // Mark non-primes in the [2, sqrt(end)] range
-    bool *small_primes = (bool *)malloc((sqrt_end + 1) * sizeof(bool));
-    for (int i = 0; i <= sqrt_end; i++) small_primes[i] = true;
-    for (int i = 2; i <= sqrt_end; i++) {
-        if (small_primes[i]) {
-            for (int j = i * i; j <= sqrt_end; j += i) {
-                small_primes[j] = false;
-            }
-        }
-    }
-
-    // Mark non-primes in the [start, end] range using small primes
-    for (int i = 2; i <= sqrt_end; i++) {
-        if (small_primes[i]) {
-            int first_multiple = (start / i) * i;
-            if (first_multiple < start) first_multiple += i;
-            if (first_multiple == i) first_multiple += i;
-            for (int j = first_multiple; j <= end; j += i) {
-                is_prime[j - start] = false;
-            }
-        }
-    }
-
-    free(small_primes);
-}
-
-// Function to find prime clusters {p, p+2, p+4}
-int find_prime_clusters(int *primes, int prime_count, int **clusters, int *smallest_sum_cluster) {
-    int count = 0;
-    int min_sum = INT_MAX;
-
-    for (int i = 0; i < prime_count - 2; i++) {
-        if (primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
-            int sum = primes[i] + primes[i + 1] + primes[i + 2];
-            if (sum < min_sum) {
-                min_sum = sum;
-                (*smallest_sum_cluster)[0] = primes[i];
-                (*smallest_sum_cluster)[1] = primes[i + 1];
-                (*smallest_sum_cluster)[2] = primes[i + 2];
-            }
-            count++;
-        }
-    }
-
-    return count;
-}
+// Function prototypes
+void sieve_of_eratosthenes(bool *is_prime, int start, int end, int global_start);
+int find_prime_clusters(int *primes, int prime_count, int **clusters, int *smallest_sum_cluster);
 
 int main(int argc, char *argv[]) {
     int rank, size;
@@ -101,8 +54,8 @@ int main(int argc, char *argv[]) {
     if (rank > 0) {
         int previous_prime;
         MPI_Recv(&previous_prime, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        if (previous_prime != -1 && local_primes[0] - previous_prime == 2) {
-            if (prime_count >= 2 && local_primes[1] - local_primes[0] == 2) {
+        if (previous_prime != -1 && local_primes[0] - previous_prime <= 10) {
+            if (prime_count >= 2 && local_primes[1] - local_primes[0] <= 10) {
                 prime_count++;
             }
         }
@@ -115,7 +68,7 @@ int main(int argc, char *argv[]) {
     // Detect clusters
     int **clusters = (int **)malloc(prime_count * sizeof(int *));
     int *smallest_sum_cluster = (int *)malloc(3 * sizeof(int));
-    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters, &smallest_sum_cluster);
+    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters, smallest_sum_cluster);
 
     // Reduce cluster counts
     int total_clusters;
@@ -143,4 +96,34 @@ int main(int argc, char *argv[]) {
 
     MPI_Finalize();
     return 0;
+}
+
+// Function to perform the Sieve of Eratosthenes
+void sieve_of_eratosthenes(bool *is_prime, int start, int end, int global_start) {
+    int sqrt_end = (int)sqrt(end) + 1;
+
+    // Mark non-primes in the [2, sqrt(end)] range
+    bool *small_primes = (bool *)malloc((sqrt_end + 1) * sizeof(bool));
+    for (int i = 0; i <= sqrt_end; i++) small_primes[i] = true;
+    for (int i = 2; i <= sqrt_end; i++) {
+        if (small_primes[i]) {
+            for (int j = i * i; j <= sqrt_end; j += i) {
+                small_primes[j] = false;
+            }
+        }
+    }
+
+    // Mark non-primes in the [start, end] range using small primes
+    for (int i = 2; i <= sqrt_end; i++) {
+        if (small_primes[i]) {
+            int first_multiple = (start / i) * i;
+            if (first_multiple < start) first_multiple += i;
+            if (first_multiple == i) first_multiple += i;
+            for (int j = first_multiple; j <= end; j += i) {
+                is_prime[j - start] = false;
+            }
+        }
+    }
+
+    free(small_primes);
 }
