@@ -79,7 +79,12 @@ int main() {
     double start_time = omp_get_wtime();
     merge_sort(arr, 0, ARRAY_SIZE - 1);
     double end_time = omp_get_wtime();
-    printf("Threads: 1 | Sequential Merge Sort Time: %f seconds\n", end_time - start_time);
+    printf("| Threads | Sequential Time (s) | Parallel Time (s) | Speedup |
+");
+    printf("|---------|---------------------|-------------------|---------|
+");
+    printf("| 1       | %f              | N/A               | N/A     |
+", end_time - start_time);
 
     // Run parallel merge sort with different thread counts
     for (int threads = 1; threads <= 8; threads *= 2) {
@@ -90,10 +95,7 @@ int main() {
         start_time = omp_get_wtime();
         parallel_merge_sort(arr_copy, 0, ARRAY_SIZE - 1, 4); // Adjust depth as needed
         end_time = omp_get_wtime();
-        printf("Threads: %d | Parallel Merge Sort Time: %f seconds\n", threads, end_time - start_time);
-    }
-
-    free(arr);
-    free(arr_copy);
-    return 0;
-}
+        double parallel_time = end_time - start_time;
+        double speedup = (threads == 1) ? 1.0 : (end_time - start_time) / (end_time - start_time);
+        printf("| %d       | %f              | %f             | %f    |
+", threads, (threads == 1)
