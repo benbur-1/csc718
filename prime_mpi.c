@@ -38,13 +38,22 @@ void sieve_of_eratosthenes(bool *is_prime, int start, int end, int global_start)
     free(small_primes);
 }
 
+// Function to collect primes into an array
+int collect_primes(bool *is_prime, int start, int end, int *primes) {
+    int count = 0;
+    for (int i = 0; i <= end - start; i++) {
+        if (is_prime[i]) {
+            primes[count++] = start + i;
+        }
+    }
+    return count;
+}
+
 // Function to find prime clusters {p, p+2, p+4}
-int find_prime_clusters(int *primes, int prime_count, int **clusters, int global_start, int global_end) {
+int find_prime_clusters(int *primes, int prime_count, int **clusters) {
     int count = 0;
     for (int i = 0; i < prime_count - 2; i++) {
-        // Ensure the cluster is within the global range
-        if (primes[i] >= global_start && primes[i + 2] <= global_end &&
-            primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
+        if (primes[i + 1] - primes[i] == 2 && primes[i + 2] - primes[i + 1] == 2) {
             clusters[count] = (int *)malloc(3 * sizeof(int));
             clusters[count][0] = primes[i];
             clusters[count][1] = primes[i + 1];
@@ -88,95 +97,54 @@ int main(int argc, char *argv[]) {
 
     // Collect primes into an array
     int *local_primes = (int *)malloc(local_range_size * sizeof(int));
-    int prime_count = 0;
-    for (int i = 0; i < local_range_size; i++) {
-        if (is_prime[i]) local_primes[prime_count++] = local_start + i;
-    }
+    int prime_count = collect_primes(is_prime, local_start, local_end, local_primes);
 
-    // Debug: Print the number of primes found per process
+    // Debug: Print primes found by each process
     printf("Process %d found %d primes.\n", rank, prime_count);
 
-    // Share boundary primes for cluster detection
+    // Detect clusters
+    int **clusters = (int **)malloc(prime_count * sizeof(int *));
+    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters);
+
+    // Debug: Print clusters found by each process
+    for (int i = 0; i < local_cluster_count; i++) {
+        printf("Process %d found cluster: {%d, %d, %d}\n", rank,
+               clusters[i][0], clusters[i][1], clusters[i][2]);
+    }
+
+    // Share boundary primes with neighboring processes
     int edge_primes[2] = {0, 0};
     if (prime_count > 1) {
         edge_primes[0] = local_primes[prime_count - 2];
         edge_primes[1] = local_primes[prime_count - 1];
     }
+
     if (rank < size - 1) {
         MPI_Send(edge_primes, 2, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
     }
     if (rank > 0) {
         int neighbor_primes[2];
         MPI_Recv(neighbor_primes, 2, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        // Check if the neighbor primes form a valid cluster with the first primes in this process
         if (neighbor_primes[1] - neighbor_primes[0] == 2 && local_primes[0] - neighbor_primes[1] == 2) {
-            printf("Boundary cluster: {%d, %d, %d}\n", neighbor_primes[0], neighbor_primes[1], local_primes[0]);
+            clusters[local_cluster_count] = (int *)malloc(3 * sizeof(int));
+            clusters[local_cluster_count][0] = neighbor_primes[0];
+            clusters[local_cluster_count][1] = neighbor_primes[1];
+            clusters[local_cluster_count][2] = local_primes[0];
+            local_cluster_count++;
         }
     }
-
-    // Find prime clusters
-    int **clusters = (int **)malloc(prime_count * sizeof(int *));
-    int local_cluster_count = find_prime_clusters(local_primes, prime_count, clusters, global_start, global_end);
 
     // Gather total cluster count
     int total_clusters;
     MPI_Reduce(&local_cluster_count, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    // Initialize smallest sum and cluster
-    int local_smallest_sum = INT_MAX;
-    int local_smallest_cluster[3] = {0, 0, 0};
+    // Stop timing
+    end_time = MPI_Wtime();
 
-    // Find smallest cluster in the current process
-    for (int i = 0; i < local_cluster_count; i++) {
-        int sum = clusters[i][0] + clusters[i][1] + clusters[i][2];
-        if (sum < local_smallest_sum) {
-            local_smallest_sum = sum;
-            local_smallest_cluster[0] = clusters[i][0];
-            local_smallest_cluster[1] = clusters[i][1];
-            local_smallest_cluster[2] = clusters[i][2];
-        }
-    }
-
-    // Custom structure to reduce both smallest sum and cluster
-    typedef struct {
-        int sum;
-        int cluster[3];
-    } ClusterData;
-
-    ClusterData local_data = {local_smallest_sum, {local_smallest_cluster[0], local_smallest_cluster[1], local_smallest_cluster[2]}};
-    ClusterData global_data;
-
-    // Custom MPI reduction operation
-    MPI_Datatype cluster_type;
-    MPI_Type_contiguous(4, MPI_INT, &cluster_type); // Sum + 3 integers
-    MPI_Type_commit(&cluster_type);
-
-    void min_cluster(void *in, void *inout, int *len, MPI_Datatype *dtype) {
-        ClusterData *a = (ClusterData *)in;
-        ClusterData *b = (ClusterData *)inout;
-        if (a->sum < b->sum) {
-            b->sum = a->sum;
-            b->cluster[0] = a->cluster[0];
-            b->cluster[1] = a->cluster[1];
-            b->cluster[2] = a->cluster[2];
-        }
-    }
-
-    MPI_Op custom_op;
-    MPI_Op_create(min_cluster, 1, &custom_op);
-
-    // Perform reduction
-    MPI_Reduce(&local_data, &global_data, 1, cluster_type, custom_op, 0, MPI_COMM_WORLD);
-
-    // Clean up
-    MPI_Op_free(&custom_op);
-    MPI_Type_free(&cluster_type);
-
-    // Rank 0 prints the smallest cluster
+    // Rank 0 prints the results
     if (rank == 0) {
         printf("Total prime clusters found: %d\n", total_clusters);
-        printf("Smallest-sum cluster: {%d, %d, %d}\n", global_data.cluster[0], global_data.cluster[1], global_data.cluster[2]);
-        printf("Execution time: %.4f seconds\n", MPI_Wtime() - start_time);
+        printf("Execution time: %.4f seconds\n", end_time - start_time);
     }
 
     // Free allocated memory
