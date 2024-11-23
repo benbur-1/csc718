@@ -39,7 +39,7 @@ void sieveOfEratosthenes(int start, int end, int *primes) {
 }
 
 // Function to find prime clusters
-void find_prime_clusters(int start, int end, int *primes, int *total_clusters, int *smallest_sum) {
+void find_prime_clusters(int start, int end, int *primes, int *total_clusters, int *smallest_sum, int *smallest_cluster) {
     int prev_prime = -1, prev_prev_prime = -1;
     *total_clusters = 0;
     *smallest_sum = INT_MAX;
@@ -53,6 +53,9 @@ void find_prime_clusters(int start, int end, int *primes, int *total_clusters, i
                 int cluster_sum = prev_prev_prime + prev_prime + current_prime;
                 if (cluster_sum < *smallest_sum) {
                     *smallest_sum = cluster_sum;
+                    smallest_cluster[0] = prev_prev_prime;
+                    smallest_cluster[1] = prev_prime;
+                    smallest_cluster[2] = current_prime;
                 }
             }
 
@@ -88,18 +91,22 @@ int main(int argc, char *argv[]) {
     sieveOfEratosthenes(start, end, primes);
 
     int local_clusters, local_smallest_sum;
-    find_prime_clusters(start, end, primes, &local_clusters, &local_smallest_sum);
+    int local_smallest_cluster[3] = {-1, -1, -1};
+    find_prime_clusters(start, end, primes, &local_clusters, &local_smallest_sum, local_smallest_cluster);
 
     // Reduce results to rank 0
     int total_clusters, smallest_sum_cluster;
+    int global_smallest_cluster[3] = {-1, -1, -1};
+
     MPI_Reduce(&local_clusters, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_smallest_sum, &smallest_sum_cluster, 1, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
+    MPI_Reduce(local_smallest_cluster, global_smallest_cluster, 3, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
 
     double end_time = MPI_Wtime();
 
     if (rank == 0) {
         printf("\nTotal prime clusters found: %d\n", total_clusters);
-        printf("Smallest-sum cluster: %d\n", smallest_sum_cluster);
+        printf("Smallest-sum cluster: {%d, %d, %d}\n", global_smallest_cluster[0], global_smallest_cluster[1], global_smallest_cluster[2]);
         printf("Execution time: %f seconds\n", end_time - start_time);
     }
 
