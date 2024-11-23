@@ -180,4 +180,11 @@ int main(int argc, char *argv[]) {
     }
 
     // Free allocated memory
-    for (int i = 0; i < local_cluster_count;
+    for (int i = 0; i < local_cluster_count; i++) free(clusters[i]);
+    free(clusters);
+    free(local_primes);
+    free(is_prime);
+
+    MPI_Finalize();
+    return 0;
+}
