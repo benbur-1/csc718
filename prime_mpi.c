@@ -49,7 +49,7 @@ int collect_primes(bool *is_prime, int start, int end, int *primes) {
     return count;
 }
 
-// Function to find prime clusters {p, p+2, p+4} in a range
+// Function to detect prime clusters {p, p+2, p+4}
 int find_prime_clusters(int *primes, int prime_count, int **clusters) {
     int count = 0;
     for (int i = 0; i < prime_count - 2; i++) {
