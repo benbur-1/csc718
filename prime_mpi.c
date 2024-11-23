@@ -92,8 +92,8 @@ int main(int argc, char** argv) {
     // ...
 
     clock_t endTime = clock();
-    double executionTime = double(endTime - startTime) / CLOCKS_PER_SEC;
-
+    double executionTime = (double)(endTime - startTime) / CLOCKS_PER_SEC;
+    
     if (rank == 0) {
         printf("Total prime clusters found: %d\n", totalClusters);
         printf("Smallest-sum cluster: {%d, %d, %d}\n", minCluster[0], minCluster[1], minCluster[2]);
