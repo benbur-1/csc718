@@ -4,80 +4,70 @@
 #include <math.h>
 #include <time.h>
 
-#define GLOBAL_START 2
-#define GLOBAL_END 1000000
+#define RANGE_START 2
+#define RANGE_END 1000000
 
-// Function to perform the Sieve of Eratosthenes within a range
-void sieveOfEratosthenes(int start, int end, int* primes) {
-    for (int i = 0; i <= end - start; i++) primes[i] = 1;  // Mark all as potential primes
-    int limit = sqrt(end);
+// Function to check if a number is prime
+int is_prime(int n) {
+    if (n <= 1) return 0;
+    if (n <= 3) return 1;
+    if (n % 2 == 0 || n % 3 == 0) return 0;
+    for (int i = 5; i * i <= n; i += 6) {
+        if (n % i == 0 || n % (i + 2) == 0) return 0;
+    }
+    return 1;
+}
 
-    for (int i = 2; i <= limit; i++) {
-        for (int j = fmax(i * i, (start + i - 1) / i * i); j <= end; j += i) {
-            primes[j - start] = 0;  // Mark as non-prime
+// Function to find prime clusters
+void find_prime_clusters(int start, int end, int *total_clusters, int *smallest_sum_cluster) {
+    int prev_prime = -1, prev_prev_prime = -1;
+    *total_clusters = 0;
+    *smallest_sum_cluster = INT_MAX;
+
+    for (int i = start; i <= end; i++) {
+        if (is_prime(i)) {
+            if (prev_prev_prime != -1 && i - prev_prev_prime <= 6) {
+                (*total_clusters)++;
+                int cluster_sum = prev_prev_prime + prev_prime + i;
+                if (cluster_sum < *smallest_sum_cluster) {
+                    *smallest_sum_cluster = cluster_sum;
+                }
+            }
+            prev_prev_prime = prev_prime;
+            prev_prime = i;
         }
     }
 }
 
-// Main function
-int main(int argc, char** argv) {
-    int rank, size, rangeStart, rangeEnd, localClusters = 0, totalClusters = 0;
-    int smallestCluster[3] = {0, 0, 0}, globalSmallestCluster[3] = {0, 0, 0};
-    double startTime, endTime;
+int main(int argc, char *argv[]) {
+    int rank, size;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    MPI_Init(&argc, &argv);  // Initialize MPI
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);  // Get process rank
-    MPI_Comm_size(MPI_COMM_WORLD, &size);  // Get total number of processes
+    int range_size = (RANGE_END - RANGE_START + 1) / size;
+    int start = RANGE_START + rank * range_size;
+    int end = (rank == size - 1) ? RANGE_END : start + range_size - 1;
 
-    int rangeSize = (GLOBAL_END - GLOBAL_START + 1) / size;  // Calculate range per process
+    printf("Process %d handling range [%d, %d]\n", rank, start, end);
 
-    // Define the range for this process
-    rangeStart = GLOBAL_START + rank * rangeSize;
-    rangeEnd = (rank == size - 1) ? GLOBAL_END : rangeStart + rangeSize - 1;
+    clock_t start_time = clock();
 
-    // Adjust boundaries to handle cross-boundary clusters
-    if (rank != 0) rangeStart -= 2;
+    int local_clusters, local_smallest_sum;
+    find_prime_clusters(start, end, &local_clusters, &local_smallest_sum);
 
-    printf("Process %d handling range [%d, %d]\n", rank, rangeStart, rangeEnd);
+    int total_clusters, smallest_sum_cluster;
+    MPI_Reduce(&local_clusters, &total_clusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_smallest_sum, &smallest_sum_cluster, 1, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
 
-    int* primes = malloc((rangeEnd - rangeStart + 1) * sizeof(int));
-    if (!primes) {
-        fprintf(stderr, "Memory allocation failed for process %d\n", rank);
-        MPI_Abort(MPI_COMM_WORLD, 1);
-    }
-
-    startTime = MPI_Wtime();  // Start timing
-
-    // Perform the sieve
-    sieveOfEratosthenes(rangeStart, rangeEnd, primes);
-
-    // Find prime clusters
-    for (int i = 2; i < rangeEnd - rangeStart - 4; i++) {
-        if (primes[i] && primes[i + 2] && primes[i + 4]) {
-            localClusters++;
-            int clusterSum = (rangeStart + i) + (rangeStart + i + 2) + (rangeStart + i + 4);
-            if (smallestCluster[0] == 0 || clusterSum < (smallestCluster[0] + smallestCluster[1] + smallestCluster[2])) {
-                smallestCluster[0] = rangeStart + i;
-                smallestCluster[1] = rangeStart + i + 2;
-                smallestCluster[2] = rangeStart + i + 4;
-            }
-        }
-    }
-
-    // Reduce local results to the global results
-    MPI_Reduce(&localClusters, &totalClusters, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(smallestCluster, globalSmallestCluster, 3, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
-
-    endTime = MPI_Wtime();  // End timing
-
-    // Output results
     if (rank == 0) {
-        printf("\nTotal prime clusters found: %d\n", totalClusters);
-        printf("Smallest-sum cluster: {%d, %d, %d}\n", globalSmallestCluster[0], globalSmallestCluster[1], globalSmallestCluster[2]);
-        printf("Execution time: %f seconds\n", endTime - startTime);
+        printf("Total prime clusters found: %d\n", total_clusters);
+        printf("Smallest-sum cluster: %d\n", smallest_sum_cluster);
+        clock_t end_time = clock();
+        double time_spent = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+        printf("Execution time: %f seconds\n", time_spent);
     }
 
-    free(primes);
-    MPI_Finalize();  // Finalize MPI
+    MPI_Finalize();
     return 0;
 }
